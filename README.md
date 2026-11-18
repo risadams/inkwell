@@ -20,6 +20,11 @@ One shell setup for PowerShell 7 on Windows and zsh on macOS, Linux and WSL: the
 
 Clone the repo anywhere, then run the installer once.
 
+```sh
+git clone https://github.com/risadams/inkwell.git
+cd inkwell
+```
+
 Windows:
 
 ```powershell

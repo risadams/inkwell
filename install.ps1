@@ -182,7 +182,7 @@ $wanted = [ordered]@{
 $missing = @($wanted.Keys | Where-Object { -not (Get-Command $_ -ErrorAction Ignore) })
 $needPsFzf = -not (Get-Module -ListAvailable PSFzf)
 Write-Host 'Tools'
-if ($Tools -and $live) {
+if ($Tools -and $live -and ($missing -or $needPsFzf)) {
     foreach ($name in $missing) {
         if ($PSCmdlet.ShouldProcess($wanted[$name], 'winget install')) {
             winget install --id $wanted[$name] --exact --source winget --accept-package-agreements --accept-source-agreements
