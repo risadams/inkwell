@@ -4,6 +4,9 @@
 #   bash install.sh           add the shim to ~/.zshrc
 #   bash install.sh --tools   also install oh-my-posh, eza, fzf, zoxide, bat and
 #                             the two zsh plugins (uses brew or apt, asks for sudo on apt)
+#   bash install.sh --claude  also point Claude Code's status line at
+#                             claude/ink.claude.omp.json (replaces the one configured in
+#                             ~/.claude/settings.json; the old file is backed up)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +15,14 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}/inkwell"
 BEGIN='# >>> inkwell >>>'
 END='# <<< inkwell <<<'
 TOOLS=0
-[[ "${1:-}" == "--tools" ]] && TOOLS=1
+CLAUDE=0
+for arg in "$@"; do
+  case "$arg" in
+    --tools) TOOLS=1 ;;
+    --claude) CLAUDE=1 ;;
+    *) printf 'unknown option: %s\nusage: bash install.sh [--tools] [--claude]\n' "$arg" >&2; exit 2 ;;
+  esac
+done
 
 say() { printf '%s\n' "$*"; }
 have() { command -v "$1" > /dev/null 2>&1; }
@@ -101,6 +111,52 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     else
       say '  note    set it by hand: Terminal > Settings > Profiles > Ink Parchment > Default'
     fi
+  fi
+fi
+
+# --- Claude Code status line (opt-in) --------------------------------------------------
+if (( CLAUDE )); then
+  settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+  theme="$ROOT/claude/ink.claude.omp.json"
+  say "Claude   $settings"
+  # The theme needs a recent oh-my-posh, so render sample session data before changing anything.
+  sample='{"cwd":"/","session_id":"inkwell-probe","model":{"id":"probe","display_name":"Probe"},"workspace":{"current_dir":"/","project_dir":"/"},"version":"0","cost":{"total_cost_usd":0,"total_duration_ms":0,"total_api_duration_ms":0,"total_lines_added":0,"total_lines_removed":0},"context_window":{"total_input_tokens":1,"total_output_tokens":1,"context_window_size":200000,"used_percentage":10,"remaining_percentage":90},"effort":{"level":"high"},"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":0},"seven_day":{"used_percentage":10,"resets_at":0}}}'
+  rendered=''
+  if have oh-my-posh; then
+    rendered="$(printf '%s' "$sample" | oh-my-posh claude --config "$theme" --plain 2> /dev/null || true)"
+  fi
+  if [[ "$rendered" != *Probe* || "$rendered" == *'unable to create text'* ]]; then
+    say '  skipped oh-my-posh is missing or too old to render the Claude Code theme.'
+    say '          Upgrade it (brew upgrade oh-my-posh, or oh-my-posh upgrade), then re-run with --claude.'
+  elif ! have python3; then
+    say '  skipped python3 is needed to edit the settings file. Add this to it by hand:'
+    say "          \"statusLine\": {\"type\": \"command\", \"command\": \"$(command -v oh-my-posh) claude --config $theme\", \"padding\": 0}"
+  else
+    # Name the binary outright: the status line runs in a bare shell that may not have your PATH.
+    python3 - "$settings" "\"$(command -v oh-my-posh)\" claude --config \"$theme\"" << 'PY'
+import json, os, shutil, sys
+
+path, command = sys.argv[1], sys.argv[2]
+data = {}
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+wanted = {"type": "command", "command": command, "padding": 0}
+current = data.get("statusLine")
+if current == wanted:
+    print("  ok      status line already set")
+    sys.exit(0)
+if os.path.exists(path):
+    shutil.copy2(path, path + ".inkwell.bak")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+data["statusLine"] = wanted
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+print("  wrote   " + command)
+if isinstance(current, dict) and current.get("command"):
+    print("          replaced: " + current["command"])
+PY
   fi
 fi
 

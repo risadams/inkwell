@@ -17,6 +17,11 @@
   Also install the missing command-line tools with winget (eza, fzf, zoxide, bat)
   and the PSFzf module.
 
+.PARAMETER ClaudeCode
+  Also point Claude Code's status line at claude/ink.claude.omp.json (the Ink strip
+  with model, 5-hour usage and context). Replaces any status line already configured
+  in ~/.claude/settings.json; the old one is kept in the backup and printed.
+
 .PARAMETER Font
   Font face to set as the Windows Terminal default, e.g. 'JetBrainsMono Nerd Font'.
   Left alone when omitted.
@@ -26,21 +31,25 @@
 
 .PARAMETER ProfilePath
 .PARAMETER SettingsPath
+.PARAMETER ClaudeSettingsPath
   For trying the installer against copies. When -ProfilePath is given, steps 1 and 2
   and -Tools are skipped, so nothing outside the named files changes.
 
 .EXAMPLE
   ./install.ps1 -WhatIf      # show what would change
   ./install.ps1 -Tools       # install everything
+  ./install.ps1 -ClaudeCode  # add the Claude Code status line
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [switch]$Tools,
     [switch]$SkipTerminal,
+    [Alias('Claude')][switch]$ClaudeCode,
     [string]$Font,
     [ValidateRange(0, 1)][double]$WashOpacity = 0.4,
     [string]$ProfilePath = $PROFILE,
-    [string[]]$SettingsPath
+    [string[]]$SettingsPath,
+    [string]$ClaudeSettingsPath = (Join-Path $HOME '.claude/settings.json')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -197,6 +206,58 @@ if ($Tools -and $live -and ($missing -or $needPsFzf)) {
     Write-Host '          The profile works without them; run ./install.ps1 -Tools to add them.'
 } else {
     Write-Host '  ok      everything is installed'
+}
+
+# --- 6. Claude Code status line (opt-in) ------------------------------------------
+if ($ClaudeCode) {
+    Write-Host "Claude   $ClaudeSettingsPath"
+    $theme = (Join-Path $root 'claude/ink.claude.omp.json') -replace '\\', '/'
+    # The theme needs a recent oh-my-posh (the `claude` command plus its usage and effort
+    # fields), so try each copy on PATH against sample session data and use one that renders.
+    $sample = @{
+        cwd            = $root
+        session_id     = 'inkwell-probe'
+        model          = @{ id = 'probe'; display_name = 'Probe' }
+        workspace      = @{ current_dir = $root; project_dir = $root }
+        version        = '0'
+        cost           = @{ total_cost_usd = 0; total_duration_ms = 0; total_api_duration_ms = 0; total_lines_added = 0; total_lines_removed = 0 }
+        context_window = @{ total_input_tokens = 1; total_output_tokens = 1; context_window_size = 200000; used_percentage = 10; remaining_percentage = 90 }
+        effort         = @{ level = 'high' }
+        rate_limits    = @{ five_hour = @{ used_percentage = 10; resets_at = 0 }; seven_day = @{ used_percentage = 10; resets_at = 0 } }
+    } | ConvertTo-Json -Depth 5 -Compress
+    $copies = @(Get-Command oh-my-posh -All -CommandType Application -ErrorAction Ignore | ForEach-Object { $_.Source })
+    $capable = $copies | Where-Object {
+        $rendered = ($sample | & $_ claude --config $theme --plain 2>$null) -join ''
+        $LASTEXITCODE -eq 0 -and $rendered -match 'Probe' -and $rendered -notmatch 'unable to create text'
+    } | Select-Object -First 1
+    if (-not $capable) {
+        Write-Warning 'No oh-my-posh on PATH can render the Claude Code theme yet; it needs a newer release.'
+        Write-Warning 'Run:  winget upgrade JanDeDobbeleer.OhMyPosh   then:  ./install.ps1 -ClaudeCode'
+        foreach ($copy in $copies) { Write-Host "          found $(& $copy version)  $copy" }
+    } else {
+        $exe = 'oh-my-posh'
+        if ($capable -ne $copies[0]) {
+            # An older copy comes first on PATH, so name the newer one outright.
+            $exe = $capable -replace '\\', '/'
+            Write-Host "  note    $($copies[0]) is older and comes first on PATH; using $capable"
+        }
+        $quote = { param($text) if ($text -match '\s') { "`"$text`"" } else { $text } }
+        $command = "$(& $quote $exe) claude --config $(& $quote $theme)"
+        $settings = if (Test-Path -LiteralPath $ClaudeSettingsPath) {
+            Get-Content -Raw -LiteralPath $ClaudeSettingsPath | ConvertFrom-Json -AsHashtable
+        } else { [ordered]@{} }
+        $previous = if ($settings.statusLine -is [System.Collections.IDictionary]) { $settings.statusLine.command }
+        if ($previous -eq $command) {
+            Write-Host '  ok      status line already set'
+        } elseif ($PSCmdlet.ShouldProcess($ClaudeSettingsPath, "set statusLine to: $command")) {
+            if (Test-Path -LiteralPath $ClaudeSettingsPath) { Backup-File $ClaudeSettingsPath }
+            else { New-Item -ItemType Directory -Force (Split-Path $ClaudeSettingsPath) | Out-Null }
+            $settings.statusLine = [ordered]@{ type = 'command'; command = $command; padding = 0 }
+            Set-Content -LiteralPath $ClaudeSettingsPath -Value ($settings | ConvertTo-Json -Depth 32)
+            Write-Host "  wrote   $command"
+            if ($previous) { Write-Host "          replaced: $previous" }
+        }
+    }
 }
 
 Write-Host ''

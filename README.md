@@ -11,6 +11,7 @@ One shell setup for PowerShell 7 on Windows and zsh on macOS, Linux and WSL: the
 | `shared/env.conf` | Environment variables, read by both shells. |
 | `pwsh/profile.ps1` | PowerShell: predictions, completion, fzf, zoxide, prompt. |
 | `zsh/zshrc.zsh` | zsh: history, suggestions, fzf, zoxide, prompt. Loads after oh-my-zsh. |
+| `claude/ink.claude.omp.json` | Optional: the same Ink strip as Claude Code's status line. |
 | `terminal/schemes.json` | Ink Parchment (dark) and Ink Paper (light). The one colour source for every terminal. |
 | `terminal/make-terminal-profile.js` | Turns a scheme into a macOS Terminal profile. `install.sh` runs it. |
 | `terminal/wash.png` | The corner wash. `terminal/make-wash.ps1` repaints it. |
@@ -43,6 +44,20 @@ On a Mac, `install.sh` also builds both Ink profiles for Terminal and makes Ink 
 WSL can use the Windows clone directly (`bash /mnt/<drive>/inkwell/install.sh`), so one checkout serves both sides of the same PC.
 
 The installers only add a short shim to `$PROFILE` or `~/.zshrc` that loads the files in this repo. They back up every file they edit and are safe to re-run.
+
+## Claude Code status line (optional)
+
+```powershell
+./install.ps1 -ClaudeCode     # Windows
+```
+
+```sh
+bash install.sh --claude      # macOS, Linux, WSL
+```
+
+This sets `statusLine` in `~/.claude/settings.json` to `oh-my-posh claude --config <repo>/claude/ink.claude.omp.json`. The line shows the folder and git branch on the left, and on the right the model and effort level, 5-hour usage, and context used. The usage chip only appears on subscription plans. Both chips turn ochre at 70% and light with rose text at 90%.
+
+It replaces whatever status line was configured; the installer backs up the settings file and prints the command it replaced. It needs a recent oh-my-posh. The installer renders sample data first and changes nothing if the installed copy is too old.
 
 ## Keep machines in sync
 
