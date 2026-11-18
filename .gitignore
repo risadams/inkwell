@@ -1,0 +1,5 @@
+# Per-machine overrides, loaded last by each shell if present.
+local.ps1
+local.zsh
+
+*.bak
